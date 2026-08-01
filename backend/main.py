@@ -17,6 +17,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from huggingface_hub import hf_hub_download
+
+WEIGHTS_REPO = "vashika20/ai-health-screening-weights"
+
+def ensure_weights():
+    """Downloads model weights from Hugging Face Hub if not already present locally."""
+    weights_dir = os.path.join(BASE_DIR, "weights")
+    os.makedirs(weights_dir, exist_ok=True)
+
+    tb_path = os.path.join(weights_dir, "tb_model_best.pth")
+    dr_path = os.path.join(weights_dir, "dr_model_best.pth")
+
+    if not os.path.exists(tb_path):
+        print("Downloading TB model weights from Hugging Face...")
+        downloaded = hf_hub_download(repo_id=WEIGHTS_REPO, filename="tb_model_best.pth")
+        shutil.copy(downloaded, tb_path)
+        print("TB weights downloaded!")
+
+    if not os.path.exists(dr_path):
+        print("Downloading DR model weights from Hugging Face...")
+        downloaded = hf_hub_download(repo_id=WEIGHTS_REPO, filename="dr_model_best.pth")
+        shutil.copy(downloaded, dr_path)
+        print("DR weights downloaded!")
+
+ensure_weights()
+
 from models.tb_model import TBDetector
 from models.dr_model import DRGrader
 from utils.preprocess import enhance_xray, enhance_retinal, check_image_quality

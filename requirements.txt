@@ -11,3 +11,4 @@ torchvision
 grad-cam
 scikit-learn
 pandas
+huggingface_hub
