@@ -10,7 +10,7 @@ class TBDetector:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"TB Model running on: {self.device}")
 
-        self.model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+        self.model = models.resnet50(weights=None)
         self.model.fc = nn.Linear(2048, 2)
 
         self.class_to_idx = {'Normal': 0, 'TB': 1}

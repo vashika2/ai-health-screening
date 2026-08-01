@@ -10,7 +10,7 @@ class DRGrader:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"DR Model running on: {self.device}")
 
-        self.model = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.DEFAULT)
+        self.model = models.efficientnet_b4(weights=None)
         self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, 5)
 
         self.class_to_idx = {}
