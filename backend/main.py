@@ -101,7 +101,7 @@ async def predict_tb(
     tb_detector.generate_heatmap(enhanced_path, heatmap_path, prediction["predicted_class_idx"])
 
     with open(heatmap_path, "rb") as img_file:
-        heatmap_base64 = base64.b64encode(img_file.read()).decode("utf-8")
+        heatmap_base64 = ""  # Temporarily disabled to test memory usage
 
     # Free the model from memory immediately after use
     del tb_detector
@@ -148,7 +148,7 @@ async def predict_dr(
     dr_grader.generate_heatmap(enhanced_path, heatmap_path, prediction["predicted_class_idx"])
 
     with open(heatmap_path, "rb") as img_file:
-        heatmap_base64 = base64.b64encode(img_file.read()).decode("utf-8")
+        heatmap_base64 = ""  # Temporarily disabled to test memory usage
 
     # Free the model from memory immediately after use
     del dr_grader
