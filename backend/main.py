@@ -1,6 +1,5 @@
 import sys
 import os
-import base64
 sys.path.insert(0, os.path.dirname(__file__))
 
 BASE_DIR = os.path.dirname(__file__)
@@ -10,12 +9,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-import shutil, uuid
+import shutil, uuid, base64, gc
 from dotenv import load_dotenv
 
 load_dotenv()
+
+import torch
+torch.set_num_threads(1)  # Reduces memory overhead from multi-threaded buffers
 
 from huggingface_hub import hf_hub_download
 
@@ -54,22 +54,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Custom middleware to add CORS headers to every response
-class CORSMiddlewareCustom(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.method == "OPTIONS":
-            response = JSONResponse(content={})
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            return response
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        return response
-
-app.add_middleware(CORSMiddlewareCustom)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -78,10 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-print("Loading AI models...")
-tb_detector = TBDetector(weights_path=os.getenv("TB_MODEL_PATH"))
-dr_grader   = DRGrader(weights_path=os.getenv("DR_MODEL_PATH"))
-print("Models ready!")
+print("Server starting — models will load on-demand per request to save memory")
 
 @app.get("/")
 def root():
@@ -89,7 +70,7 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "models": ["TB Detector", "DR Grader"]}
+    return {"status": "healthy", "models": ["TB Detector", "DR Grader"], "mode": "lazy-loading"}
 
 @app.post("/predict/tb")
 async def predict_tb(
@@ -111,18 +92,21 @@ async def predict_tb(
         return JSONResponse(status_code=400, content={"error": quality["reason"]})
 
     enhance_xray(original_path, enhanced_path)
+
+    # Load model fresh for this request only
+    print("Loading TB model for this request...")
+    tb_detector = TBDetector(weights_path=os.getenv("TB_MODEL_PATH", "backend/weights/tb_model_best.pth"))
+
     prediction = tb_detector.predict(enhanced_path)
+    tb_detector.generate_heatmap(enhanced_path, heatmap_path, prediction["predicted_class_idx"])
 
-    # Generate Grad-CAM heatmap
-    tb_detector.generate_heatmap(
-        enhanced_path,
-        heatmap_path,
-        prediction["predicted_class_idx"]
-    )
-
-    # Convert heatmap to base64 so frontend can display it directly
     with open(heatmap_path, "rb") as img_file:
         heatmap_base64 = base64.b64encode(img_file.read()).decode("utf-8")
+
+    # Free the model from memory immediately after use
+    del tb_detector
+    gc.collect()
+    print("TB model unloaded, memory freed")
 
     patient_info = {"age": age, "symptoms": symptoms, "duration": duration}
     report = generate_tb_report(prediction, patient_info)
@@ -134,6 +118,7 @@ async def predict_tb(
         "image_quality": quality,
         "heatmap": f"data:image/jpeg;base64,{heatmap_base64}"
     }
+
 @app.post("/predict/dr")
 async def predict_dr(
         file: UploadFile = File(...),
@@ -154,17 +139,21 @@ async def predict_dr(
         return JSONResponse(status_code=400, content={"error": quality["reason"]})
 
     enhance_retinal(original_path, enhanced_path)
-    prediction = dr_grader.predict(enhanced_path)
 
-    # Generate Grad-CAM heatmap
-    dr_grader.generate_heatmap(
-        enhanced_path,
-        heatmap_path,
-        prediction["predicted_class_idx"]
-    )
+    # Load model fresh for this request only
+    print("Loading DR model for this request...")
+    dr_grader = DRGrader(weights_path=os.getenv("DR_MODEL_PATH", "backend/weights/dr_model_best.pth"))
+
+    prediction = dr_grader.predict(enhanced_path)
+    dr_grader.generate_heatmap(enhanced_path, heatmap_path, prediction["predicted_class_idx"])
 
     with open(heatmap_path, "rb") as img_file:
         heatmap_base64 = base64.b64encode(img_file.read()).decode("utf-8")
+
+    # Free the model from memory immediately after use
+    del dr_grader
+    gc.collect()
+    print("DR model unloaded, memory freed")
 
     patient_info = {"age": age, "diabetes_years": diabetes_years, "hba1c": hba1c}
     report = generate_dr_report(prediction, patient_info)
